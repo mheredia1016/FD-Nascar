@@ -1,34 +1,23 @@
-# FanDuel NASCAR Monitor
+# FD NASCAR Monitor - Railway Fixed
 
-Watches FanDuel Motorsport/NASCAR odds locally and sends Discord alerts when Top 3 or Top 5 prices look mispriced compared to Winner odds.
+This version uses the official Playwright Docker image so Railway has all Chromium dependencies.
 
-## Alerts when
+## Railway Variables
 
-- Top 3 odds are the same as or higher than Winner odds
-- Top 5 odds are the same as or higher than Winner odds
-- Top 5 odds are the same as or higher than Top 3 odds
+Set these in Railway:
 
-## Setup
-
-1. Open this folder in Terminal.
-2. Edit `.env`.
-3. Replace `PASTE_NEW_DISCORD_WEBHOOK_HERE` with a new Discord webhook.
-4. Run:
-
-```bash
-npm install
-npx playwright install chromium
-npm start
+```env
+DISCORD_WEBHOOK_URL=your_new_webhook
+FANDUEL_URL=https://sportsbook.fanduel.com/motorsport
+POLL_SECONDS=20
+HEADLESS=true
+DEBUG=false
 ```
 
-Keep the browser open while it runs.
+## Important
 
-## Notes
+Railway should detect the Dockerfile automatically. If it does not:
 
-FanDuel pages are dynamic and may change by state, location, logged-in status, or page layout. This script uses a few scraping methods:
-
-1. Tries to extract structured odds buttons from the page.
-2. Falls back to text parsing.
-3. Sends alerts only once per unique driver/odds/issue combo to avoid spam.
-
-If FanDuel loads a location screen, age screen, or blocks the browser, handle that in the open browser window and the script should keep polling.
+- Settings → Build
+- Builder: Dockerfile
+- Start command: leave blank or use `npm start`

@@ -4,7 +4,6 @@
   "description": "FanDuel NASCAR odds anomaly monitor",
   "main": "monitor.js",
   "scripts": {
-    "postinstall": "npx playwright install chromium",
     "start": "node monitor.js"
   },
   "dependencies": {

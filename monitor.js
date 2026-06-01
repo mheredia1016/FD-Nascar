@@ -4,7 +4,7 @@ const { chromium } = require("playwright");
 const WEBHOOK = process.env.DISCORD_WEBHOOK_URL;
 const URL = process.env.FANDUEL_URL || "https://sportsbook.fanduel.com/motorsport";
 const POLL_SECONDS = Number(process.env.POLL_SECONDS || 20);
-const HEADLESS = String(process.env.HEADLESS || "false").toLowerCase() === "true";
+const HEADLESS = String(process.env.HEADLESS || "true").toLowerCase() === "true";
 const DEBUG = String(process.env.DEBUG || "false").toLowerCase() === "true" || process.env.DEBUG === "1";
 
 const alerted = new Set();
@@ -26,11 +26,6 @@ function formatOdds(value) {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function oddsSortValue(value) {
-  if (value === null || value === undefined || Number.isNaN(value)) return -999999;
-  return value;
-}
-
 function issuesFor(row) {
   const hits = [];
 
@@ -50,10 +45,8 @@ function issuesFor(row) {
 }
 
 async function sendDiscord(row, issues) {
-  const issueText = issues.join(" | ");
-  const key = `${row.driver}|${row.winner}|${row.top3}|${row.top5}|${issueText}`;
+  const key = `${row.driver}|${row.winner}|${row.top3}|${row.top5}|${issues.join(",")}`;
   if (alerted.has(key)) return;
-
   alerted.add(key);
 
   const bestBadMarket =
@@ -77,20 +70,16 @@ ${issues.map(x => `• ${x}`).join("\n")}
 
 ${URL}`;
 
-  try {
-    const res = await fetch(WEBHOOK, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content })
-    });
+  const res = await fetch(WEBHOOK, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content })
+  });
 
-    if (!res.ok) {
-      console.error(`Discord error ${res.status}:`, await res.text());
-    } else {
-      console.log(`Discord alert sent: ${row.driver} — ${issueText}`);
-    }
-  } catch (err) {
-    console.error("Discord send failed:", err.message);
+  if (!res.ok) {
+    console.error(`Discord error ${res.status}:`, await res.text());
+  } else {
+    console.log(`Discord alert sent: ${row.driver}`);
   }
 }
 
@@ -113,11 +102,6 @@ function mergeRows(rows) {
   return [...map.values()].filter(r => r.winner !== null || r.top3 !== null || r.top5 !== null);
 }
 
-/**
- * Structured scrape.
- * This tries to read visible button/cards and group nearby odds by driver.
- * FanDuel changes classes often, so this intentionally relies more on text/roles than class names.
- */
 async function scrapeStructured(page) {
   return await page.evaluate(() => {
     function clean(s) {
@@ -135,6 +119,8 @@ async function scrapeStructured(page) {
         .replace(/\bTop\s*3\b/ig, "")
         .replace(/\bTop\s*5\b/ig, "")
         .replace(/\bWinner\b/ig, "")
+        .replace(/\bOutright\b/ig, "")
+        .replace(/\bRace\s*Winner\b/ig, "")
         .trim();
 
       const m = cleaned.match(/[A-Z][a-zA-Z'.-]+(?:\s+[A-Z][a-zA-Z'.-]+){1,3}/);
@@ -142,7 +128,7 @@ async function scrapeStructured(page) {
     }
 
     const buttons = [...document.querySelectorAll("button, [role='button'], a")];
-    const candidates = [];
+    const rows = [];
 
     for (const el of buttons) {
       const text = clean(el.innerText || el.textContent || "");
@@ -158,18 +144,13 @@ async function scrapeStructured(page) {
       if (/top\s*3/i.test(full)) market = "top3";
       else if (/top\s*5/i.test(full)) market = "top5";
       else if (/winner|outright|race winner|to win/i.test(full)) market = "winner";
+      if (!market) continue;
 
-      candidates.push({ driver, market, odd, text: full });
-    }
-
-    const rows = [];
-    for (const c of candidates) {
-      if (!c.market) continue;
       rows.push({
-        driver: c.driver,
-        winner: c.market === "winner" ? c.odd : null,
-        top3: c.market === "top3" ? c.odd : null,
-        top5: c.market === "top5" ? c.odd : null
+        driver,
+        winner: market === "winner" ? odd : null,
+        top3: market === "top3" ? odd : null,
+        top5: market === "top5" ? odd : null
       });
     }
 
@@ -177,39 +158,26 @@ async function scrapeStructured(page) {
   });
 }
 
-/**
- * Text fallback.
- * If the page presents columns as visible text, this scans for driver names followed by odds.
- */
 async function scrapeTextFallback(page) {
   const body = await page.locator("body").innerText({ timeout: 15000 });
-  const lines = body
-    .split("\n")
-    .map(x => x.trim())
-    .filter(Boolean);
-
+  const lines = body.split("\n").map(x => x.trim()).filter(Boolean);
   const rows = [];
-
   const driverRegex = /^[A-Z][a-zA-Z'.-]+(?:\s+[A-Z][a-zA-Z'.-]+){1,3}$/;
   const oddRegex = /^[+-]\d{2,5}$/;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (!driverRegex.test(line)) continue;
+    if (!driverRegex.test(lines[i])) continue;
 
     const nextOdds = [];
-    for (let j = i + 1; j < Math.min(lines.length, i + 12); j++) {
+    for (let j = i + 1; j < Math.min(lines.length, i + 15); j++) {
       const odd = parseAmericanOdds(lines[j]);
-      if (oddRegex.test(lines[j]) && odd !== null) {
-        nextOdds.push(odd);
-      }
+      if (oddRegex.test(lines[j]) && odd !== null) nextOdds.push(odd);
       if (nextOdds.length >= 3) break;
     }
 
     if (nextOdds.length >= 2) {
       rows.push({
-        driver: line,
+        driver: lines[i],
         winner: nextOdds[0] ?? null,
         top3: nextOdds[1] ?? null,
         top5: nextOdds[2] ?? null
@@ -221,36 +189,30 @@ async function scrapeTextFallback(page) {
 }
 
 async function clickLikelyNASCARMarkets(page) {
-  const labels = [
-    /nascar/i,
-    /cracket barrel|cracker barrel/i,
-    /race winner/i,
-    /winner/i,
-    /top\s*3/i,
-    /top\s*5/i
-  ];
+  const labels = [/nascar/i, /race winner/i, /winner/i, /top\s*3/i, /top\s*5/i];
 
   for (const label of labels) {
     try {
       const target = page.getByText(label).first();
       if (await target.count()) {
         await target.click({ timeout: 1500 }).catch(() => {});
-        await sleep(1000);
+        await sleep(800);
       }
     } catch (_) {}
   }
 }
 
 async function scrape(page) {
-  console.log(`[${new Date().toLocaleTimeString()}] Loading FanDuel...`);
+  console.log(`[${new Date().toISOString()}] Loading FanDuel...`);
 
   await page.goto(URL, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await sleep(7000);
+  await sleep(8000);
 
   await clickLikelyNASCARMarkets(page);
   await sleep(3000);
 
   let rows = [];
+
   try {
     rows = rows.concat(await scrapeStructured(page));
   } catch (err) {
@@ -279,16 +241,9 @@ async function scrape(page) {
 
   let alerts = 0;
 
-  rows.sort((a, b) => {
-    const aBest = Math.max(oddsSortValue(a.top3), oddsSortValue(a.top5));
-    const bBest = Math.max(oddsSortValue(b.top3), oddsSortValue(b.top5));
-    return bBest - aBest;
-  });
-
   for (const row of rows) {
     const issues = issuesFor(row);
     if (!issues.length) continue;
-
     alerts++;
     console.log("ALERT:", row.driver, {
       winner: formatOdds(row.winner),
@@ -296,24 +251,21 @@ async function scrape(page) {
       top5: formatOdds(row.top5),
       issues
     });
-
     await sendDiscord(row, issues);
   }
 
-  if (!alerts) {
-    console.log("No bad pricing found this pass.");
-  }
+  if (!alerts) console.log("No bad pricing found this pass.");
 }
 
 (async () => {
-  if (!WEBHOOK || WEBHOOK.includes("PASTE_NEW_DISCORD_WEBHOOK_HERE")) {
-    console.error("Missing DISCORD_WEBHOOK_URL. Edit .env and add a new Discord webhook.");
+  if (!WEBHOOK || WEBHOOK.includes("PASTE")) {
+    console.error("Missing DISCORD_WEBHOOK_URL. Add it in Railway variables.");
     process.exit(1);
   }
 
   const browser = await chromium.launch({
     headless: HEADLESS,
-    slowMo: HEADLESS ? 0 : 50
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
   });
 
   const context = await browser.newContext({
