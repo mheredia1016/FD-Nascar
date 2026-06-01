@@ -1,11 +1,11 @@
 {
-  "name": "fanduel-nascar-monitor",
+  "name": "fd-nascar-monitor",
   "version": "1.0.0",
-  "description": "Local FanDuel NASCAR odds anomaly monitor for Winner / Top 3 / Top 5 pricing.",
+  "description": "FanDuel NASCAR odds anomaly monitor",
   "main": "monitor.js",
   "scripts": {
-    "start": "node monitor.js",
-    "debug": "DEBUG=1 node monitor.js"
+    "postinstall": "npx playwright install chromium",
+    "start": "node monitor.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
