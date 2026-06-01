@@ -1,10 +1,12 @@
-# FD NASCAR Monitor - Railway Fixed
+# FD NASCAR Monitor - Railway Playwright 1.60 Fix
 
-This version uses the official Playwright Docker image so Railway has all Chromium dependencies.
+This version pins Playwright to 1.60.0 and uses the matching Docker image:
+
+```dockerfile
+FROM mcr.microsoft.com/playwright:v1.60.0-jammy
+```
 
 ## Railway Variables
-
-Set these in Railway:
 
 ```env
 DISCORD_WEBHOOK_URL=your_new_webhook
@@ -16,8 +18,4 @@ DEBUG=false
 
 ## Important
 
-Railway should detect the Dockerfile automatically. If it does not:
-
-- Settings → Build
-- Builder: Dockerfile
-- Start command: leave blank or use `npm start`
+Delete `package-lock.json` from GitHub if it exists, or replace it by redeploying after uploading this package.json.
